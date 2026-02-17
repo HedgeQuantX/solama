@@ -5,7 +5,7 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-solama = "H6UZFdyiBBGGwNpJP6WJU3frJPNgrUeGuFitXRDsQ4iP"
+solama = "AkxWQaZUi5utcadKd31jUX7psx6NBu9ecH9dssXCJgLf"
 
 [registry]
 url = "https://api.apr.dev"

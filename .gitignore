@@ -2,7 +2,9 @@ node_modules/
 target/
 .anchor/
 dist/
+.next/
 .DS_Store
 *.log
 .env
 .env.local
+*.key
