@@ -2,9 +2,10 @@
 
 import { useState, useCallback } from "react";
 import Header from "@/components/Header";
-import PriceFeed from "@/components/PriceFeed";
-import TradingZones, { SelectedZone } from "@/components/TradingZones";
+import Chart from "@/components/Chart";
 import BetPanel from "@/components/BetPanel";
+import { MAX_ZONES_PER_BET } from "@/lib/constants";
+import type { SelectedZone } from "@/components/TradingZones";
 
 export default function Home() {
   const [selectedZones, setSelectedZones] = useState<SelectedZone[]>([]);
@@ -24,7 +25,7 @@ export default function Home() {
               Math.abs(s.upper - zone.upper) < 0.01
             )
         );
-      if (prev.length >= 2) return prev;
+      if (prev.length >= MAX_ZONES_PER_BET) return prev;
       return [...prev, zone];
     });
   }, []);
@@ -34,15 +35,12 @@ export default function Home() {
   return (
     <div className="flex flex-col h-screen bg-bg-primary">
       <Header />
-      <PriceFeed />
-
       <main className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-y-auto">
-          <TradingZones
-            selectedZones={selectedZones}
-            onToggleZone={handleToggleZone}
-          />
-        </div>
+        <Chart
+          selectedZones={selectedZones}
+          onToggleZone={handleToggleZone}
+          maxZones={MAX_ZONES_PER_BET}
+        />
         <BetPanel
           selectedZones={selectedZones}
           onClearZones={handleClearZones}
