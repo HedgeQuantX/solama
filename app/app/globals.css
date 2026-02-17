@@ -9,8 +9,8 @@
 }
 
 body {
-  background: #0a0b0d;
-  color: #f1f5f9;
+  background: #08090c;
+  color: #f5f5f5;
   overflow-x: hidden;
 }
 
@@ -18,34 +18,27 @@ body {
   width: 4px;
 }
 ::-webkit-scrollbar-track {
-  background: #0a0b0d;
+  background: #08090c;
 }
 ::-webkit-scrollbar-thumb {
-  background: #2a3040;
+  background: #2a2e38;
   border-radius: 2px;
 }
 
 .wallet-adapter-button {
-  background: #1a1d26 !important;
-  border: 1px solid #1e2330 !important;
+  background: #14171e !important;
+  border: 1px solid #1a1e28 !important;
   border-radius: 8px !important;
   font-size: 13px !important;
   height: 40px !important;
+  color: #f5f5f5 !important;
   transition: all 0.15s ease !important;
 }
 .wallet-adapter-button:hover {
-  background: #22262f !important;
-  border-color: #2a3040 !important;
+  background: #1c2028 !important;
+  border-color: #00e5ff40 !important;
 }
 .wallet-adapter-modal-wrapper {
-  background: #12141a !important;
-  border: 1px solid #1e2330 !important;
-}
-
-@keyframes zone-pulse {
-  0%, 100% { opacity: 0.6; }
-  50% { opacity: 1; }
-}
-.zone-active {
-  animation: zone-pulse 1.5s ease-in-out infinite;
+  background: #0e1015 !important;
+  border: 1px solid #1a1e28 !important;
 }

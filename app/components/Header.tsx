@@ -32,17 +32,17 @@ export default function Header() {
   return (
     <header className="flex items-center justify-between px-6 h-14 border-b border-border-primary bg-bg-secondary/80 backdrop-blur-sm">
       <div className="flex items-center gap-3">
-        <div className="text-lg font-bold tracking-tight text-text-primary">
+        <div className="text-lg font-bold tracking-tight text-accent-cyan">
           SOLAMA
         </div>
         <div className="h-4 w-px bg-border-primary" />
-        <span className="text-xs font-mono text-accent-green">DEVNET</span>
+        <span className="text-xs font-mono text-accent-yellow">DEVNET</span>
       </div>
 
       <div className="flex items-center gap-4">
         {publicKey && balance !== null && (
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-bg-tertiary border border-border-primary">
-            <div className="w-1.5 h-1.5 rounded-full bg-accent-green" />
+            <div className="w-1.5 h-1.5 rounded-full bg-accent-cyan" />
             <span className="text-xs font-mono text-text-secondary">
               {balance.toFixed(4)} SOL
             </span>

@@ -7,6 +7,7 @@ import {
   ISeriesApi,
   LineData,
   LineSeries,
+  LineType,
 } from "lightweight-charts";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { BN } from "@coral-xyz/anchor";
@@ -32,7 +33,6 @@ const COLS = 8;
 const ROWS = 12;
 const BET_PRESETS = [0.01, 0.05, 0.1, 0.5];
 
-// Multiplier based on distance from price row
 function getMultiplier(rowDist: number): { label: string; bps: number } {
   if (rowDist <= 1) return { label: "1.5X", bps: 15_000 };
   if (rowDist <= 2) return { label: "3X", bps: 30_000 };
@@ -61,7 +61,6 @@ export default function Chart() {
   const [txSig, setTxSig] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Toggle cell selection (max 2)
   const toggleCell = useCallback((cell: Cell) => {
     setSelected((prev) => {
       const next = new Map(prev);
@@ -74,7 +73,6 @@ export default function Chart() {
     });
   }, []);
 
-  // Place bet on-chain
   const placeBet = useCallback(async () => {
     if (!program || !publicKey || selected.size === 0) return;
     setLoading(true);
@@ -98,7 +96,7 @@ export default function Chart() {
       setTxSig(sig);
       setSelected(new Map());
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Transaction failed");
+      setError(e instanceof Error ? e.message : "TRANSACTION FAILED");
     } finally {
       setLoading(false);
     }
@@ -110,10 +108,10 @@ export default function Chart() {
 
     const chart = createChart(containerRef.current, {
       layout: {
-        background: { color: "#0c0c10" },
-        textColor: "#64748b",
+        background: { color: "#08090c" },
+        textColor: "#616161",
         fontSize: 11,
-        fontFamily: "monospace",
+        fontFamily: "Rajdhani, monospace",
       },
       grid: {
         vertLines: { color: "transparent" },
@@ -124,11 +122,11 @@ export default function Chart() {
         horzLine: { visible: false },
       },
       rightPriceScale: {
-        borderColor: "#1e2330",
+        borderColor: "#1a1e28",
         scaleMargins: { top: 0.05, bottom: 0.05 },
       },
       timeScale: {
-        borderColor: "#1e2330",
+        borderColor: "#1a1e28",
         timeVisible: true,
         secondsVisible: true,
         rightOffset: 3,
@@ -137,12 +135,13 @@ export default function Chart() {
     });
 
     const series = chart.addSeries(LineSeries, {
-      color: "#ff4060",
+      color: "#00e5ff",
       lineWidth: 2,
+      lineType: LineType.Curved,
       crosshairMarkerVisible: true,
       crosshairMarkerRadius: 5,
       crosshairMarkerBackgroundColor: "#ffffff",
-      crosshairMarkerBorderColor: "#ff4060",
+      crosshairMarkerBorderColor: "#00e5ff",
       lastValueVisible: false,
       priceLineVisible: false,
     });
@@ -179,7 +178,7 @@ export default function Chart() {
     seriesRef.current.setData(ticks as LineData[]);
   }, [ticks]);
 
-  // Draw grid on canvas
+  // Draw grid
   useEffect(() => {
     const canvas = canvasRef.current;
     const series = seriesRef.current;
@@ -206,15 +205,16 @@ export default function Chart() {
       const timeScaleH = 26;
       const gridW = cw - priceScaleW;
       const gridH = ch - timeScaleH;
-
       const cellW = gridW / COLS;
       const cellH = gridH / ROWS;
-
-      // Determine price range visible — center on current price
-      const priceStep = price * 0.002; // each row ~0.2% of price
+      const priceStep = price * 0.002;
       const midRow = Math.floor(ROWS / 2);
       const hoverId = hoverIdRef.current;
       const now = Date.now();
+
+      // Colors: cyan=#00e5ff, pink=#c2185b, yellow=#fdd835, white=#f5f5f5, grey=#616161
+      const CYAN = { r: 0, g: 229, b: 255 };
+      const PINK = { r: 194, g: 24, b: 91 };
 
       const cells: Cell[] = [];
 
@@ -231,80 +231,74 @@ export default function Chart() {
 
           const sel = selected.has(id);
           const hover = hoverId === id;
-
-          // Check if price is in this row
           const hit = price >= Math.min(priceTop, priceBot) && price <= Math.max(priceTop, priceBot);
 
-          // Cell background
-          const baseR = 180, baseG = 30, baseB = 50;
-          let alpha = 0.04 + rowDist * 0.015;
-          if (hit) alpha = 0.15;
-          if (sel) alpha = 0.3;
-          if (hover && !sel) alpha = 0.12;
+          // Background — pink tones
+          let bgAlpha = 0.03 + rowDist * 0.012;
+          if (hit) bgAlpha = 0.18;
+          if (sel) bgAlpha = 0.28;
+          if (hover && !sel) bgAlpha = 0.10;
 
-          ctx.fillStyle = `rgba(${baseR},${baseG},${baseB},${alpha})`;
+          ctx.fillStyle = `rgba(${PINK.r},${PINK.g},${PINK.b},${bgAlpha})`;
           ctx.fillRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
 
-          // Cell border
-          let borderAlpha = 0.08;
-          if (sel) borderAlpha = 0.6;
+          // Border
+          let borderAlpha = 0.06;
+          if (sel) borderAlpha = 0.7;
           else if (hover) borderAlpha = 0.25;
-          else if (hit) borderAlpha = 0.3;
+          else if (hit) borderAlpha = 0.35;
 
-          ctx.strokeStyle = `rgba(${baseR},${baseG},${baseB},${borderAlpha})`;
+          ctx.strokeStyle = `rgba(${PINK.r},${PINK.g},${PINK.b},${borderAlpha})`;
           ctx.lineWidth = sel ? 1.5 : 0.5;
           ctx.strokeRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
 
-          // Glow for selected
+          // Glow for selected — cyan glow
           if (sel) {
             const pulse = 0.15 + Math.sin(now / 300) * 0.1;
-            ctx.shadowColor = `rgba(255,60,90,${pulse})`;
-            ctx.shadowBlur = 15;
-            ctx.fillStyle = `rgba(255,60,90,0.08)`;
-            ctx.fillRect(x + 1, y + 1, cellW - 2, cellH - 2);
+            ctx.shadowColor = `rgba(${CYAN.r},${CYAN.g},${CYAN.b},${pulse})`;
+            ctx.shadowBlur = 16;
+            ctx.strokeStyle = `rgba(${CYAN.r},${CYAN.g},${CYAN.b},0.6)`;
+            ctx.lineWidth = 1.5;
+            ctx.strokeRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
             ctx.shadowBlur = 0;
           }
 
-          // Text
           const cx = x + cellW / 2;
           const cy = y + cellH / 2;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
 
-          if (sel) {
-            // Show bet amount
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            ctx.font = "bold 13px monospace";
-            ctx.fillStyle = "#ffffff";
-            const betDisplay = betAmount >= 1 ? `${betAmount}` : `${betAmount}`;
-            ctx.fillText(`${betDisplay} SOL`, cx, cy - 8);
-
-            // Multiplier below
-            ctx.font = "bold 11px monospace";
-            ctx.fillStyle = "rgba(255,100,120,0.9)";
-            ctx.fillText(label, cx, cy + 7);
-          } else {
-            // Just multiplier
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            ctx.font = `${rowDist >= 5 ? "bold 11px" : "10px"} monospace`;
-            const textAlpha = rowDist >= 4 ? 0.7 : 0.35;
-            ctx.fillStyle = `rgba(255,100,120,${textAlpha})`;
-            ctx.fillText(label, cx, cy);
-          }
-
-          // Win animation
           if (hit && sel) {
+            // WIN state — yellow payout
             const winPayout = (betAmount * bps) / 10_000;
-            ctx.font = "bold 14px monospace";
-            ctx.fillStyle = "#00ff88";
-            ctx.shadowColor = "#00ff88";
-            ctx.shadowBlur = 10;
-            ctx.fillText(`+${winPayout.toFixed(2)}`, cx, cy - 8);
+            ctx.font = "bold 14px Rajdhani, sans-serif";
+            ctx.fillStyle = "#fdd835";
+            ctx.shadowColor = "#fdd835";
+            ctx.shadowBlur = 12;
+            ctx.fillText(`+${winPayout.toFixed(2)}`, cx, cy - 7);
             ctx.shadowBlur = 0;
 
-            ctx.font = "bold 10px monospace";
-            ctx.fillStyle = "#ffffff";
+            ctx.font = "bold 10px Rajdhani, sans-serif";
+            ctx.fillStyle = "#f5f5f5";
             ctx.fillText("HIT!", cx, cy + 8);
+          } else if (sel) {
+            // Selected — white bet + cyan multiplier
+            ctx.font = "bold 13px Rajdhani, sans-serif";
+            ctx.fillStyle = "#f5f5f5";
+            ctx.fillText(`${betAmount} SOL`, cx, cy - 7);
+
+            ctx.font = "bold 11px Rajdhani, sans-serif";
+            ctx.fillStyle = `rgba(${CYAN.r},${CYAN.g},${CYAN.b},0.9)`;
+            ctx.fillText(label, cx, cy + 8);
+          } else {
+            // Default — multiplier in pink/grey
+            const isBigMulti = rowDist >= 4;
+            ctx.font = `${isBigMulti ? "bold 11px" : "10px"} Rajdhani, sans-serif`;
+            const textAlpha = isBigMulti ? 0.75 : 0.3;
+            ctx.fillStyle = isBigMulti
+              ? `rgba(253,216,53,${textAlpha})`
+              : `rgba(${PINK.r},${PINK.g},${PINK.b},${textAlpha})`;
+            ctx.fillText(label, cx, cy);
           }
 
           cells.push({
@@ -324,7 +318,6 @@ export default function Chart() {
     return () => cancelAnimationFrame(animRef.current);
   }, [price, selected, betAmount]);
 
-  // Click
   const onClick = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
       const canvas = canvasRef.current;
@@ -343,7 +336,6 @@ export default function Chart() {
     [toggleCell]
   );
 
-  // Hover
   const onMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -367,72 +359,72 @@ export default function Chart() {
   const maxPayout = selectedArr.reduce((a, c) => a + (betAmount * c.multiBps) / 10_000, 0);
 
   const dirColor =
-    direction === "up" ? "text-accent-green" : direction === "down" ? "text-accent-red" : "text-text-primary";
+    direction === "up" ? "text-accent-cyan" : direction === "down" ? "text-accent-pink" : "text-accent-white";
 
   return (
     <div className="relative flex-1 min-h-0">
-      {/* Top-left: price */}
+      {/* PRICE */}
       <div className="absolute top-3 left-4 z-20 flex items-center gap-3 pointer-events-none">
-        <span className="text-xs text-text-muted font-mono">BTC/USDT</span>
-        <div className={`w-1.5 h-1.5 rounded-full ${connected ? "bg-accent-green" : "bg-accent-red"}`} />
-        <span className={`text-xl font-mono font-bold ${dirColor} transition-colors duration-100`}>
+        <span className="text-xs text-text-muted font-display uppercase">BTC/USDT</span>
+        <div className={`w-1.5 h-1.5 rounded-full ${connected ? "bg-accent-cyan" : "bg-accent-pink"}`} />
+        <span className={`text-xl font-display font-bold uppercase ${dirColor} transition-colors duration-100`}>
           {price > 0
             ? `$${price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
             : "---"}
         </span>
       </div>
 
-      {/* Bet selector */}
+      {/* BET SELECTOR */}
       <div className="absolute top-12 left-4 z-20 flex items-center gap-1.5">
-        <span className="text-[10px] text-text-muted mr-1 font-mono">BET</span>
+        <span className="text-[10px] text-text-muted mr-1 font-display uppercase">BET</span>
         {BET_PRESETS.map((val) => (
           <button
             key={val}
             onClick={() => setBetAmount(val)}
-            className={`px-2 py-1 rounded text-[11px] font-mono border transition-all ${
+            className={`px-2 py-1 rounded text-[11px] font-display uppercase border transition-all ${
               betAmount === val
-                ? "bg-accent-red/15 border-accent-red/40 text-accent-red"
+                ? "bg-accent-cyan/15 border-accent-cyan/40 text-accent-cyan"
                 : "bg-bg-tertiary/60 border-border-primary/50 text-text-muted hover:border-border-hover"
             }`}
           >
             {val}
           </button>
         ))}
-        <span className="text-[10px] text-text-muted ml-0.5 font-mono">SOL</span>
+        <span className="text-[10px] text-text-muted ml-0.5 font-display uppercase">SOL</span>
       </div>
 
-      {/* Bottom: confirm */}
+      {/* CONFIRM BAR */}
       {selected.size > 0 && (
         <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-20 flex items-center gap-4 px-5 py-2.5 rounded-xl bg-bg-secondary/95 border border-border-primary backdrop-blur-sm">
           <div className="flex flex-col items-center">
-            <span className="text-[9px] text-text-muted uppercase">Total</span>
-            <span className="text-sm font-mono font-bold text-text-primary">{totalBet.toFixed(2)} SOL</span>
+            <span className="text-[9px] text-text-muted font-display uppercase">TOTAL</span>
+            <span className="text-sm font-display font-bold text-accent-white uppercase">{totalBet.toFixed(2)} SOL</span>
           </div>
           <div className="w-px h-8 bg-border-primary" />
           <div className="flex flex-col items-center">
-            <span className="text-[9px] text-text-muted uppercase">Max Win</span>
-            <span className="text-sm font-mono font-bold text-accent-green">{maxPayout.toFixed(2)} SOL</span>
+            <span className="text-[9px] text-text-muted font-display uppercase">MAX WIN</span>
+            <span className="text-sm font-display font-bold text-accent-yellow uppercase">{maxPayout.toFixed(2)} SOL</span>
           </div>
           <button
             onClick={placeBet}
             disabled={!publicKey || loading}
-            className={`ml-2 px-5 py-2 rounded-lg text-xs font-bold font-mono transition-all ${
+            className={`ml-2 px-5 py-2 rounded-lg text-xs font-bold font-display uppercase transition-all ${
               !publicKey
                 ? "bg-bg-tertiary text-text-muted cursor-not-allowed"
                 : loading
-                  ? "bg-accent-red/20 text-accent-red cursor-wait"
-                  : "bg-accent-red text-white hover:bg-accent-red/90 active:scale-95"
+                  ? "bg-accent-pink/20 text-accent-pink cursor-wait"
+                  : "bg-accent-cyan text-bg-primary hover:bg-accent-cyan/90 active:scale-95"
             }`}
           >
-            {!publicKey ? "Connect Wallet" : loading ? "..." : "PLACE BET"}
+            {!publicKey ? "CONNECT WALLET" : loading ? "..." : "PLACE BET"}
           </button>
         </div>
       )}
 
-      {/* Instruction */}
+      {/* INSTRUCTION */}
       {selected.size === 0 && price > 0 && (
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 px-4 py-2 rounded-lg bg-bg-secondary/70 border border-border-primary/50 backdrop-blur-sm pointer-events-none">
-          <span className="text-[11px] text-text-muted font-mono">
+          <span className="text-[11px] text-text-muted font-display uppercase">
             TAP A CELL — IF PRICE HITS IT, YOU WIN THE MULTIPLIER
           </span>
         </div>
@@ -445,7 +437,7 @@ export default function Chart() {
             href={`https://explorer.solana.com/tx/${txSig}?cluster=devnet`}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-[10px] font-mono text-accent-green hover:underline"
+            className="text-[10px] font-display uppercase text-accent-cyan hover:underline"
           >
             TX: {txSig.slice(0, 12)}...
           </a>
@@ -453,14 +445,11 @@ export default function Chart() {
       )}
       {error && (
         <div className="absolute top-3 right-20 z-20">
-          <span className="text-[10px] font-mono text-accent-red">{error.slice(0, 50)}</span>
+          <span className="text-[10px] font-display uppercase text-accent-pink">{error.slice(0, 50)}</span>
         </div>
       )}
 
-      {/* Chart behind */}
       <div ref={containerRef} className="w-full h-full" />
-
-      {/* Grid overlay */}
       <canvas
         ref={canvasRef}
         className="absolute inset-0 z-10"

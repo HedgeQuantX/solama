@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" fill="none">
+  <rect width="1200" height="630" fill="#08090c"/>
+  <!-- Grid lines -->
+  <g stroke="#1a1e28" stroke-width="0.5">
+    <line x1="0" y1="52.5" x2="1200" y2="52.5"/><line x1="0" y1="105" x2="1200" y2="105"/>
+    <line x1="0" y1="157.5" x2="1200" y2="157.5"/><line x1="0" y1="210" x2="1200" y2="210"/>
+    <line x1="0" y1="262.5" x2="1200" y2="262.5"/><line x1="0" y1="315" x2="1200" y2="315"/>
+    <line x1="0" y1="367.5" x2="1200" y2="367.5"/><line x1="0" y1="420" x2="1200" y2="420"/>
+    <line x1="0" y1="472.5" x2="1200" y2="472.5"/><line x1="0" y1="525" x2="1200" y2="525"/>
+    <line x1="0" y1="577.5" x2="1200" y2="577.5"/>
+    <line x1="150" y1="0" x2="150" y2="630"/><line x1="300" y1="0" x2="300" y2="630"/>
+    <line x1="450" y1="0" x2="450" y2="630"/><line x1="600" y1="0" x2="600" y2="630"/>
+    <line x1="750" y1="0" x2="750" y2="630"/><line x1="900" y1="0" x2="900" y2="630"/>
+    <line x1="1050" y1="0" x2="1050" y2="630"/>
+  </g>
+  <!-- Price line -->
+  <path d="M50 420 L200 400 L350 380 L500 350 L600 310 L700 330 L800 290 L900 260 L1000 240 L1150 200" stroke="#00e5ff" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <!-- Glow cells -->
+  <rect x="750" y="262.5" width="150" height="52.5" rx="4" fill="#c2185b" fill-opacity="0.2" stroke="#c2185b" stroke-opacity="0.5"/>
+  <rect x="900" y="210" width="150" height="52.5" rx="4" fill="#c2185b" fill-opacity="0.25" stroke="#00e5ff" stroke-opacity="0.6" stroke-width="1.5"/>
+  <!-- Star icon -->
+  <g transform="translate(520,480) scale(0.5)">
+    <polygon points="400,80 418,145 488,155 435,200 450,270 400,235 350,270 365,200 312,155 382,145" fill="#fdd835"/>
+  </g>
+  <!-- Text -->
+  <text x="600" y="510" text-anchor="middle" font-family="Rajdhani, sans-serif" font-size="72" font-weight="700" fill="#f5f5f5" letter-spacing="8">SOLAMA</text>
+  <text x="600" y="560" text-anchor="middle" font-family="Rajdhani, sans-serif" font-size="22" font-weight="500" fill="#616161" letter-spacing="4">TAP TRADING ON SOLANA</text>
+</svg>
