@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useMemo, useCallback, useState } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import {
   createChart,
   IChartApi,
@@ -12,103 +12,71 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { BN } from "@coral-xyz/anchor";
 import { usePriceHistory } from "@/hooks/usePriceHistory";
 import { useProgram } from "@/hooks/useProgram";
-import {
-  ZONE_MULTIPLIERS,
-  LAMPORTS_PER_SOL,
-  PRICE_DECIMALS,
-} from "@/lib/constants";
-import type { SelectedZone } from "./TradingZones";
+import { LAMPORTS_PER_SOL, PRICE_DECIMALS } from "@/lib/constants";
 
-interface ZoneBox {
-  zone: SelectedZone & { distancePct: number };
+interface Cell {
+  row: number;
+  col: number;
+  id: string;
+  priceTop: number;
+  priceBot: number;
+  multi: string;
+  multiBps: number;
   x: number;
   y: number;
   w: number;
   h: number;
 }
 
-const BET_PRESETS = [0.01, 0.05, 0.1, 0.25];
+const COLS = 8;
+const ROWS = 12;
+const BET_PRESETS = [0.01, 0.05, 0.1, 0.5];
+
+// Multiplier based on distance from price row
+function getMultiplier(rowDist: number): { label: string; bps: number } {
+  if (rowDist <= 1) return { label: "1.5X", bps: 15_000 };
+  if (rowDist <= 2) return { label: "3X", bps: 30_000 };
+  if (rowDist <= 3) return { label: "5.54X", bps: 55_400 };
+  if (rowDist <= 4) return { label: "10X", bps: 100_000 };
+  if (rowDist <= 5) return { label: "50X", bps: 500_000 };
+  return { label: "200X", bps: 2_000_000 };
+}
 
 export default function Chart() {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Line"> | null>(null);
-  const zoneBoxesRef = useRef<ZoneBox[]>([]);
+  const cellsRef = useRef<Cell[]>([]);
   const animRef = useRef<number>(0);
-  const hoverIdxRef = useRef<number>(-1);
+  const hoverIdRef = useRef("");
 
   const { ticks, price, direction, connected } = usePriceHistory();
   const { publicKey } = useWallet();
   const { program } = useProgram();
 
   const [betAmount, setBetAmount] = useState(0.05);
-  const [selectedZones, setSelectedZones] = useState<SelectedZone[]>([]);
+  const [selected, setSelected] = useState<Map<string, Cell>>(new Map());
   const [loading, setLoading] = useState(false);
   const [txSig, setTxSig] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Generate zones around current price
-  const zones = useMemo(() => {
-    if (price <= 0) return [];
-    return ZONE_MULTIPLIERS.flatMap(({ distance, multiplier, label }) => {
-      const offset = price * (distance / 100);
-      return [
-        {
-          lower: price + offset - offset * 0.1,
-          upper: price + offset + offset * 0.1,
-          multiplierBps: multiplier,
-          label,
-          side: "long" as const,
-          distancePct: distance,
-        },
-        {
-          lower: price - offset - offset * 0.1,
-          upper: price - offset + offset * 0.1,
-          multiplierBps: multiplier,
-          label,
-          side: "short" as const,
-          distancePct: distance,
-        },
-      ];
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [Math.floor(price / 50)]);
-
-  const isSelected = useCallback(
-    (zone: { lower: number; upper: number }) =>
-      selectedZones.some(
-        (s) =>
-          Math.abs(s.lower - zone.lower) < 0.01 &&
-          Math.abs(s.upper - zone.upper) < 0.01
-      ),
-    [selectedZones]
-  );
-
-  // Toggle zone selection
-  const toggleZone = useCallback((zone: SelectedZone) => {
-    setSelectedZones((prev) => {
-      const exists = prev.some(
-        (s) =>
-          Math.abs(s.lower - zone.lower) < 0.01 &&
-          Math.abs(s.upper - zone.upper) < 0.01
-      );
-      if (exists)
-        return prev.filter(
-          (s) =>
-            !(
-              Math.abs(s.lower - zone.lower) < 0.01 &&
-              Math.abs(s.upper - zone.upper) < 0.01
-            )
-        );
-      if (prev.length >= 2) return prev;
-      return [...prev, zone];
+  // Toggle cell selection (max 2)
+  const toggleCell = useCallback((cell: Cell) => {
+    setSelected((prev) => {
+      const next = new Map(prev);
+      if (next.has(cell.id)) {
+        next.delete(cell.id);
+      } else if (next.size < 2) {
+        next.set(cell.id, cell);
+      }
+      return next;
     });
   }, []);
 
   // Place bet on-chain
   const placeBet = useCallback(async () => {
-    if (!program || !publicKey || selectedZones.length === 0) return;
+    if (!program || !publicKey || selected.size === 0) return;
     setLoading(true);
     setError(null);
     setTxSig(null);
@@ -116,68 +84,67 @@ export default function Chart() {
     try {
       const roundId = BigInt(Date.now());
       const lamports = new BN(Math.floor(betAmount * LAMPORTS_PER_SOL));
-      const onChainZones = selectedZones.map((z) => ({
-        lowerBound: new BN(Math.floor(z.lower * 10 ** PRICE_DECIMALS)),
-        upperBound: new BN(Math.floor(z.upper * 10 ** PRICE_DECIMALS)),
-        multiplierBps: z.multiplierBps,
+      const zones = Array.from(selected.values()).map((c) => ({
+        lowerBound: new BN(Math.floor(c.priceBot * 10 ** PRICE_DECIMALS)),
+        upperBound: new BN(Math.floor(c.priceTop * 10 ** PRICE_DECIMALS)),
+        multiplierBps: c.multiBps,
       }));
 
       const sig = await program.methods
-        .placeBet(new BN(roundId.toString()), lamports, onChainZones)
+        .placeBet(new BN(roundId.toString()), lamports, zones)
         .accounts({ player: publicKey } as never)
         .rpc();
 
       setTxSig(sig);
-      setSelectedZones([]);
+      setSelected(new Map());
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Transaction failed");
     } finally {
       setLoading(false);
     }
-  }, [program, publicKey, selectedZones, betAmount]);
+  }, [program, publicKey, selected, betAmount]);
 
-  // Init lightweight-charts
+  // Init chart
   useEffect(() => {
     if (!containerRef.current) return;
 
     const chart = createChart(containerRef.current, {
       layout: {
-        background: { color: "#0a0b0d" },
+        background: { color: "#0c0c10" },
         textColor: "#64748b",
         fontSize: 11,
         fontFamily: "monospace",
       },
       grid: {
-        vertLines: { color: "#1e233010" },
-        horzLines: { color: "#1e233040" },
+        vertLines: { color: "transparent" },
+        horzLines: { color: "transparent" },
       },
       crosshair: {
-        vertLine: { color: "#4a9eff20", width: 1, style: 2, labelBackgroundColor: "#1a1d26" },
-        horzLine: { color: "#4a9eff20", width: 1, style: 2, labelBackgroundColor: "#1a1d26" },
+        vertLine: { visible: false },
+        horzLine: { visible: false },
       },
       rightPriceScale: {
         borderColor: "#1e2330",
-        scaleMargins: { top: 0.2, bottom: 0.2 },
+        scaleMargins: { top: 0.05, bottom: 0.05 },
       },
       timeScale: {
         borderColor: "#1e2330",
         timeVisible: true,
         secondsVisible: true,
-        rightOffset: 8,
+        rightOffset: 3,
       },
       handleScroll: { vertTouchDrag: false },
     });
 
     const series = chart.addSeries(LineSeries, {
-      color: "#4a9eff",
+      color: "#ff4060",
       lineWidth: 2,
       crosshairMarkerVisible: true,
-      crosshairMarkerRadius: 3,
-      crosshairMarkerBackgroundColor: "#4a9eff",
-      lastValueVisible: true,
-      priceLineVisible: true,
-      priceLineColor: "#4a9eff30",
-      priceLineWidth: 1,
+      crosshairMarkerRadius: 5,
+      crosshairMarkerBackgroundColor: "#ffffff",
+      crosshairMarkerBorderColor: "#ff4060",
+      lastValueVisible: false,
+      priceLineVisible: false,
     });
 
     chartRef.current = chart;
@@ -206,25 +173,18 @@ export default function Chart() {
     };
   }, []);
 
-  // Feed price data
+  // Feed data
   useEffect(() => {
     if (!seriesRef.current || ticks.length === 0) return;
     seriesRef.current.setData(ticks as LineData[]);
   }, [ticks]);
 
-  // Line color
-  useEffect(() => {
-    if (!seriesRef.current) return;
-    seriesRef.current.applyOptions({
-      color: direction === "up" ? "#00d4aa" : direction === "down" ? "#ff4757" : "#4a9eff",
-    });
-  }, [direction]);
-
-  // Draw zone boxes on canvas
+  // Draw grid on canvas
   useEffect(() => {
     const canvas = canvasRef.current;
     const series = seriesRef.current;
-    if (!canvas || !series || zones.length === 0) return;
+    const chart = chartRef.current;
+    if (!canvas || !series || !chart) return;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -232,89 +192,139 @@ export default function Chart() {
 
     const draw = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (price <= 0) {
+        animRef.current = requestAnimationFrame(draw);
+        return;
+      }
+
       ctx.save();
       ctx.scale(dpr, dpr);
 
-      const boxes: ZoneBox[] = [];
       const cw = canvas.width / dpr;
-      const boxW = 100;
-      const priceScaleW = 65;
-      const boxX = cw - priceScaleW - boxW - 16;
-      const hoverIdx = hoverIdxRef.current;
+      const ch = canvas.height / dpr;
+      const priceScaleW = 60;
+      const timeScaleH = 26;
+      const gridW = cw - priceScaleW;
+      const gridH = ch - timeScaleH;
 
-      zones.forEach((zone, i) => {
-        const yTop = series.priceToCoordinate(zone.upper);
-        const yBot = series.priceToCoordinate(zone.lower);
-        if (yTop === null || yBot === null) return;
+      const cellW = gridW / COLS;
+      const cellH = gridH / ROWS;
 
-        const y = Math.min(yTop, yBot);
-        const h = Math.abs(yBot - yTop);
-        const drawH = Math.max(h, 48);
-        const drawY = y - (drawH - h) / 2;
+      // Determine price range visible — center on current price
+      const priceStep = price * 0.002; // each row ~0.2% of price
+      const midRow = Math.floor(ROWS / 2);
+      const hoverId = hoverIdRef.current;
+      const now = Date.now();
 
-        const sel = isSelected(zone);
-        const hover = hoverIdx === i;
-        const isLong = zone.side === "long";
-        const rgb = isLong ? "0,212,170" : "255,71,87";
+      const cells: Cell[] = [];
 
-        // Background
-        const bgAlpha = sel ? 0.3 : hover ? 0.18 : 0.08;
-        ctx.fillStyle = `rgba(${rgb},${bgAlpha})`;
-        ctx.beginPath();
-        ctx.roundRect(boxX, drawY, boxW, drawH, 8);
-        ctx.fill();
+      for (let row = 0; row < ROWS; row++) {
+        const rowDist = Math.abs(row - midRow);
+        const { label, bps } = getMultiplier(rowDist);
+        const priceTop = price + (midRow - row) * priceStep;
+        const priceBot = price + (midRow - row - 1) * priceStep;
 
-        // Border
-        const borderAlpha = sel ? 0.9 : hover ? 0.5 : 0.2;
-        ctx.strokeStyle = `rgba(${rgb},${borderAlpha})`;
-        ctx.lineWidth = sel ? 2 : 1;
-        ctx.stroke();
+        for (let col = 0; col < COLS; col++) {
+          const id = `${row}-${col}`;
+          const x = col * cellW;
+          const y = row * cellH;
 
-        // Glow on selected
-        if (sel) {
-          const glow = 0.2 + Math.sin(Date.now() / 300) * 0.12;
-          ctx.shadowColor = `rgba(${rgb},${glow})`;
-          ctx.shadowBlur = 16;
-          ctx.beginPath();
-          ctx.roundRect(boxX, drawY, boxW, drawH, 8);
-          ctx.stroke();
-          ctx.shadowBlur = 0;
+          const sel = selected.has(id);
+          const hover = hoverId === id;
+
+          // Check if price is in this row
+          const hit = price >= Math.min(priceTop, priceBot) && price <= Math.max(priceTop, priceBot);
+
+          // Cell background
+          const baseR = 180, baseG = 30, baseB = 50;
+          let alpha = 0.04 + rowDist * 0.015;
+          if (hit) alpha = 0.15;
+          if (sel) alpha = 0.3;
+          if (hover && !sel) alpha = 0.12;
+
+          ctx.fillStyle = `rgba(${baseR},${baseG},${baseB},${alpha})`;
+          ctx.fillRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
+
+          // Cell border
+          let borderAlpha = 0.08;
+          if (sel) borderAlpha = 0.6;
+          else if (hover) borderAlpha = 0.25;
+          else if (hit) borderAlpha = 0.3;
+
+          ctx.strokeStyle = `rgba(${baseR},${baseG},${baseB},${borderAlpha})`;
+          ctx.lineWidth = sel ? 1.5 : 0.5;
+          ctx.strokeRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
+
+          // Glow for selected
+          if (sel) {
+            const pulse = 0.15 + Math.sin(now / 300) * 0.1;
+            ctx.shadowColor = `rgba(255,60,90,${pulse})`;
+            ctx.shadowBlur = 15;
+            ctx.fillStyle = `rgba(255,60,90,0.08)`;
+            ctx.fillRect(x + 1, y + 1, cellW - 2, cellH - 2);
+            ctx.shadowBlur = 0;
+          }
+
+          // Text
+          const cx = x + cellW / 2;
+          const cy = y + cellH / 2;
+
+          if (sel) {
+            // Show bet amount
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.font = "bold 13px monospace";
+            ctx.fillStyle = "#ffffff";
+            const betDisplay = betAmount >= 1 ? `${betAmount}` : `${betAmount}`;
+            ctx.fillText(`${betDisplay} SOL`, cx, cy - 8);
+
+            // Multiplier below
+            ctx.font = "bold 11px monospace";
+            ctx.fillStyle = "rgba(255,100,120,0.9)";
+            ctx.fillText(label, cx, cy + 7);
+          } else {
+            // Just multiplier
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.font = `${rowDist >= 5 ? "bold 11px" : "10px"} monospace`;
+            const textAlpha = rowDist >= 4 ? 0.7 : 0.35;
+            ctx.fillStyle = `rgba(255,100,120,${textAlpha})`;
+            ctx.fillText(label, cx, cy);
+          }
+
+          // Win animation
+          if (hit && sel) {
+            const winPayout = (betAmount * bps) / 10_000;
+            ctx.font = "bold 14px monospace";
+            ctx.fillStyle = "#00ff88";
+            ctx.shadowColor = "#00ff88";
+            ctx.shadowBlur = 10;
+            ctx.fillText(`+${winPayout.toFixed(2)}`, cx, cy - 8);
+            ctx.shadowBlur = 0;
+
+            ctx.font = "bold 10px monospace";
+            ctx.fillStyle = "#ffffff";
+            ctx.fillText("HIT!", cx, cy + 8);
+          }
+
+          cells.push({
+            row, col, id, priceTop, priceBot,
+            multi: label, multiBps: bps,
+            x, y, w: cellW, h: cellH,
+          });
         }
+      }
 
-        const cx = boxX + boxW / 2;
-        const cy = drawY + drawH / 2;
-
-        // Multiplier label
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.font = "bold 14px monospace";
-        ctx.fillStyle = sel ? `rgb(${rgb})` : `rgba(${rgb},0.85)`;
-        ctx.fillText(zone.label, cx, cy - 14);
-
-        // Bet amount
-        ctx.font = "bold 11px monospace";
-        ctx.fillStyle = sel ? "#f1f5f9" : "rgba(241,245,249,0.5)";
-        ctx.fillText(`${betAmount} SOL`, cx, cy + 1);
-
-        // Potential payout
-        const payout = (betAmount * zone.multiplierBps) / 10_000;
-        ctx.font = "9px monospace";
-        ctx.fillStyle = `rgba(${rgb},0.6)`;
-        ctx.fillText(`win ${payout.toFixed(3)}`, cx, cy + 14);
-
-        boxes.push({ zone, x: boxX, y: drawY, w: boxW, h: drawH });
-      });
-
-      zoneBoxesRef.current = boxes;
+      cellsRef.current = cells;
       ctx.restore();
       animRef.current = requestAnimationFrame(draw);
     };
 
     animRef.current = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(animRef.current);
-  }, [zones, isSelected, betAmount]);
+  }, [price, selected, betAmount]);
 
-  // Canvas click — toggle zone
+  // Click
   const onClick = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
       const canvas = canvasRef.current;
@@ -323,17 +333,17 @@ export default function Chart() {
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
 
-      for (const box of zoneBoxesRef.current) {
-        if (x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h) {
-          toggleZone(box.zone);
+      for (const cell of cellsRef.current) {
+        if (x >= cell.x && x <= cell.x + cell.w && y >= cell.y && y <= cell.y + cell.h) {
+          toggleCell(cell);
           return;
         }
       }
     },
-    [toggleZone]
+    [toggleCell]
   );
 
-  // Canvas hover
+  // Hover
   const onMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -341,127 +351,116 @@ export default function Chart() {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    let idx = -1;
-    for (let i = 0; i < zoneBoxesRef.current.length; i++) {
-      const box = zoneBoxesRef.current[i];
-      if (x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h) {
-        idx = i;
+    let id = "";
+    for (const cell of cellsRef.current) {
+      if (x >= cell.x && x <= cell.x + cell.w && y >= cell.y && y <= cell.y + cell.h) {
+        id = cell.id;
         break;
       }
     }
-    hoverIdxRef.current = idx;
-    canvas.style.cursor = idx >= 0 ? "pointer" : "crosshair";
+    hoverIdRef.current = id;
+    canvas.style.cursor = id ? "pointer" : "default";
   }, []);
 
+  const selectedArr = Array.from(selected.values());
+  const totalBet = betAmount * selected.size;
+  const maxPayout = selectedArr.reduce((a, c) => a + (betAmount * c.multiBps) / 10_000, 0);
+
   const dirColor =
-    direction === "up"
-      ? "text-accent-green"
-      : direction === "down"
-        ? "text-accent-red"
-        : "text-text-primary";
+    direction === "up" ? "text-accent-green" : direction === "down" ? "text-accent-red" : "text-text-primary";
 
   return (
     <div className="relative flex-1 min-h-0">
-      {/* Top-left: pair + price */}
+      {/* Top-left: price */}
       <div className="absolute top-3 left-4 z-20 flex items-center gap-3 pointer-events-none">
         <span className="text-xs text-text-muted font-mono">BTC/USDT</span>
-        <div
-          className={`w-1.5 h-1.5 rounded-full ${connected ? "bg-accent-green" : "bg-accent-red"}`}
-        />
-        <span
-          className={`text-lg font-mono font-bold ${dirColor} transition-colors duration-100`}
-        >
+        <div className={`w-1.5 h-1.5 rounded-full ${connected ? "bg-accent-green" : "bg-accent-red"}`} />
+        <span className={`text-xl font-mono font-bold ${dirColor} transition-colors duration-100`}>
           {price > 0
             ? `$${price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
             : "---"}
         </span>
       </div>
 
-      {/* Top-left below: bet amount selector */}
-      <div className="absolute top-10 left-4 z-20 flex items-center gap-1.5 mt-2">
+      {/* Bet selector */}
+      <div className="absolute top-12 left-4 z-20 flex items-center gap-1.5">
+        <span className="text-[10px] text-text-muted mr-1 font-mono">BET</span>
         {BET_PRESETS.map((val) => (
           <button
             key={val}
             onClick={() => setBetAmount(val)}
-            className={`px-2.5 py-1 rounded-md text-[11px] font-mono border transition-all ${
+            className={`px-2 py-1 rounded text-[11px] font-mono border transition-all ${
               betAmount === val
-                ? "bg-accent-blue/15 border-accent-blue/50 text-accent-blue"
-                : "bg-bg-tertiary/80 border-border-primary text-text-secondary hover:border-border-hover"
+                ? "bg-accent-red/15 border-accent-red/40 text-accent-red"
+                : "bg-bg-tertiary/60 border-border-primary/50 text-text-muted hover:border-border-hover"
             }`}
           >
             {val}
           </button>
         ))}
-        <span className="text-[10px] text-text-muted ml-1">SOL</span>
+        <span className="text-[10px] text-text-muted ml-0.5 font-mono">SOL</span>
       </div>
 
-      {/* Bottom: confirm bet bar */}
-      {selectedZones.length > 0 && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 px-5 py-2.5 rounded-xl bg-bg-secondary/95 border border-border-primary backdrop-blur-sm">
-          <div className="flex items-center gap-2">
-            {selectedZones.map((z, i) => (
-              <span
-                key={i}
-                className={`text-[11px] font-mono font-bold ${
-                  z.side === "long" ? "text-accent-green" : "text-accent-red"
-                }`}
-              >
-                {z.label}
-              </span>
-            ))}
+      {/* Bottom: confirm */}
+      {selected.size > 0 && (
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-20 flex items-center gap-4 px-5 py-2.5 rounded-xl bg-bg-secondary/95 border border-border-primary backdrop-blur-sm">
+          <div className="flex flex-col items-center">
+            <span className="text-[9px] text-text-muted uppercase">Total</span>
+            <span className="text-sm font-mono font-bold text-text-primary">{totalBet.toFixed(2)} SOL</span>
           </div>
-          <div className="w-px h-5 bg-border-primary" />
-          <span className="text-xs font-mono text-text-secondary">
-            {(betAmount * selectedZones.length).toFixed(2)} SOL
-          </span>
+          <div className="w-px h-8 bg-border-primary" />
+          <div className="flex flex-col items-center">
+            <span className="text-[9px] text-text-muted uppercase">Max Win</span>
+            <span className="text-sm font-mono font-bold text-accent-green">{maxPayout.toFixed(2)} SOL</span>
+          </div>
           <button
             onClick={placeBet}
             disabled={!publicKey || loading}
-            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+            className={`ml-2 px-5 py-2 rounded-lg text-xs font-bold font-mono transition-all ${
               !publicKey
                 ? "bg-bg-tertiary text-text-muted cursor-not-allowed"
                 : loading
-                  ? "bg-accent-blue/20 text-accent-blue cursor-wait"
-                  : "bg-accent-blue text-white hover:bg-accent-blue/90 active:scale-95"
+                  ? "bg-accent-red/20 text-accent-red cursor-wait"
+                  : "bg-accent-red text-white hover:bg-accent-red/90 active:scale-95"
             }`}
           >
-            {!publicKey ? "Connect Wallet" : loading ? "Confirming..." : "Place Bet"}
+            {!publicKey ? "Connect Wallet" : loading ? "..." : "PLACE BET"}
           </button>
         </div>
       )}
 
       {/* Instruction */}
-      {selectedZones.length === 0 && price > 0 && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 px-4 py-2 rounded-lg bg-bg-secondary/80 border border-border-primary backdrop-blur-sm pointer-events-none">
-          <span className="text-xs text-text-muted">
-            Tap a zone to bet — select up to 2
+      {selected.size === 0 && price > 0 && (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 px-4 py-2 rounded-lg bg-bg-secondary/70 border border-border-primary/50 backdrop-blur-sm pointer-events-none">
+          <span className="text-[11px] text-text-muted font-mono">
+            TAP A CELL — IF PRICE HITS IT, YOU WIN THE MULTIPLIER
           </span>
         </div>
       )}
 
-      {/* TX feedback */}
+      {/* TX */}
       {txSig && (
-        <div className="absolute bottom-14 left-1/2 -translate-x-1/2 z-20">
+        <div className="absolute top-3 right-20 z-20">
           <a
             href={`https://explorer.solana.com/tx/${txSig}?cluster=devnet`}
             target="_blank"
             rel="noopener noreferrer"
             className="text-[10px] font-mono text-accent-green hover:underline"
           >
-            TX: {txSig.slice(0, 16)}...
+            TX: {txSig.slice(0, 12)}...
           </a>
         </div>
       )}
       {error && (
-        <div className="absolute bottom-14 left-1/2 -translate-x-1/2 z-20">
-          <span className="text-[10px] font-mono text-accent-red">{error.slice(0, 60)}</span>
+        <div className="absolute top-3 right-20 z-20">
+          <span className="text-[10px] font-mono text-accent-red">{error.slice(0, 50)}</span>
         </div>
       )}
 
-      {/* Chart */}
+      {/* Chart behind */}
       <div ref={containerRef} className="w-full h-full" />
 
-      {/* Canvas overlay */}
+      {/* Grid overlay */}
       <canvas
         ref={canvasRef}
         className="absolute inset-0 z-10"
