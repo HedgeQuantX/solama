@@ -29,18 +29,19 @@ interface Cell {
   h: number;
 }
 
-const GRID_COLS = 12;
-const GRID_ROWS = 10;
+const GRID_COLS = 10;
+const GRID_ROWS = 8;
 const BET_PRESETS = [0.01, 0.05, 0.1, 0.5];
 const MAX_SELECT = 2;
+const RIGHT_BARS = 50;
+const SOL_PRICE_USD = 170;
 
-function getMultiplier(rowDist: number): { bps: number } {
-  if (rowDist === 0) return { bps: 15_000 };
-  if (rowDist === 1) return { bps: 30_000 };
-  if (rowDist === 2) return { bps: 55_400 };
-  if (rowDist === 3) return { bps: 100_000 };
-  if (rowDist === 4) return { bps: 500_000 };
-  return { bps: 2_000_000 };
+function getMultiplier(rowDist: number): number {
+  if (rowDist === 0) return 15_000;
+  if (rowDist === 1) return 30_000;
+  if (rowDist === 2) return 55_000;
+  if (rowDist === 3) return 100_000;
+  return 200_000 + (rowDist - 4) * 150_000;
 }
 
 function formatPayout(val: number): string {
@@ -111,7 +112,7 @@ export default function Chart() {
     }
   }, [program, publicKey, selected, betAmount]);
 
-  // Init chart
+  // Init chart — large rightOffset to leave space for grid
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -139,7 +140,7 @@ export default function Chart() {
         borderColor: "#1a1e28",
         timeVisible: true,
         secondsVisible: true,
-        rightOffset: 5,
+        rightOffset: RIGHT_BARS,
       },
       handleScroll: { vertTouchDrag: false },
     });
@@ -188,7 +189,7 @@ export default function Chart() {
     seriesRef.current.setData(ticks as LineData[]);
   }, [ticks]);
 
-  // Draw grid — full chart coverage, Euphoria-style
+  // Draw grid — RIGHT side only, ahead of price
   useEffect(() => {
     const canvas = canvasRef.current;
     const chart = chartRef.current;
@@ -207,13 +208,32 @@ export default function Chart() {
       const ch = canvas.height / dpr;
       const priceScaleW = 60;
       const timeScaleH = 26;
-      const gridW = cw - priceScaleW;
-      const gridH = ch - timeScaleH;
+      const chartW = cw - priceScaleW;
+      const chartH = ch - timeScaleH;
+
+      // Find where the last data point ends on screen
+      // The rightOffset creates empty space — that's where our grid goes
+      const timeScale = chart.timeScale();
+      const visRange = timeScale.getVisibleLogicalRange();
+      let gridStartX = chartW * 0.5;
+
+      if (visRange) {
+        const totalBars = visRange.to - visRange.from;
+        if (totalBars > 0) {
+          // The data ends at (visRange.to - RIGHT_BARS)
+          // So the empty zone starts at that pixel position
+          const dataEndLogical = visRange.to - RIGHT_BARS;
+          const dataEndRatio = (dataEndLogical - visRange.from) / totalBars;
+          gridStartX = Math.max(chartW * 0.3, chartW * dataEndRatio + 10);
+        }
+      }
+
+      const gridW = chartW - gridStartX;
       const cellW = gridW / GRID_COLS;
-      const cellH = gridH / GRID_ROWS;
+      const cellH = chartH / GRID_ROWS;
 
       const basePrice = price > 0 ? price : 100_000;
-      const priceStep = basePrice * 0.001;
+      const priceStep = basePrice * 0.0012;
       const midRow = Math.floor(GRID_ROWS / 2);
       const hoverId = hoverIdRef.current;
       const now = Date.now();
@@ -222,13 +242,11 @@ export default function Chart() {
       const PINK = { r: 194, g: 24, b: 91 };
       const FADE_MS = 800;
       const hitCells = hitCellsRef.current;
-      const solPrice = 170;
 
       const cells: Cell[] = [];
 
       for (let row = 0; row < GRID_ROWS; row++) {
         const rowDist = Math.abs(row - midRow);
-        const { bps } = getMultiplier(rowDist);
         const priceTop = basePrice + (midRow - row) * priceStep;
         const priceBot = basePrice + (midRow - row - 1) * priceStep;
         const rowHit = price > 0
@@ -237,20 +255,21 @@ export default function Chart() {
 
         for (let col = 0; col < GRID_COLS; col++) {
           const id = `${row}-${col}`;
-          const x = col * cellW;
+          const x = gridStartX + col * cellW;
           const y = row * cellH;
 
-          // Distance from center col too — further cols = higher payout
-          const colDist = Math.abs(col - Math.floor(GRID_COLS / 2));
-          const colBoost = 1 + colDist * 0.15;
-          const effectiveBps = Math.round(bps * colBoost);
-          const payout = (betAmount * effectiveBps * solPrice) / 10_000;
+          // Columns closer to the price (left) have lower payouts
+          // Columns further right have higher payouts
+          const colFactor = 1 + col * 0.12;
+          const baseBps = getMultiplier(rowDist);
+          const effectiveBps = Math.round(baseBps * colFactor);
+          const payout = (betAmount * effectiveBps * SOL_PRICE_USD) / 10_000;
 
           const sel = selected.has(id);
           const hover = hoverId === id;
 
-          // Track hit cells
-          if (rowHit && !hitCells.has(id)) {
+          // Track hit cells for fade
+          if (rowHit && col === 0 && !hitCells.has(id)) {
             hitCells.set(id, now);
           }
 
@@ -271,38 +290,36 @@ export default function Chart() {
 
           ctx.globalAlpha = sel ? 1 : fadeAlpha;
 
-          // --- CELL BACKGROUND ---
+          // --- BACKGROUND ---
           if (sel) {
-            // Selected = cyan glow
             ctx.fillStyle = `rgba(${CYAN.r},${CYAN.g},${CYAN.b},0.15)`;
             ctx.fillRect(x + 1, y + 1, cellW - 2, cellH - 2);
-          } else if (rowHit) {
-            ctx.fillStyle = `rgba(${PINK.r},${PINK.g},${PINK.b},0.06)`;
+          } else if (rowHit && col === 0) {
+            ctx.fillStyle = `rgba(${PINK.r},${PINK.g},${PINK.b},0.1)`;
             ctx.fillRect(x + 1, y + 1, cellW - 2, cellH - 2);
           } else if (hover) {
             ctx.fillStyle = `rgba(${CYAN.r},${CYAN.g},${CYAN.b},0.06)`;
             ctx.fillRect(x + 1, y + 1, cellW - 2, cellH - 2);
           }
 
-          // --- CELL BORDER ---
+          // --- BORDER — dotted grid ---
           ctx.setLineDash([2, 3]);
           let borderAlpha = 0.07;
           if (sel) borderAlpha = 0;
-          else if (hover) borderAlpha = 0.18;
-          else if (rowHit) borderAlpha = 0.12;
+          else if (hover) borderAlpha = 0.15;
 
           if (borderAlpha > 0) {
-            ctx.strokeStyle = `rgba(255,255,255,${borderAlpha})`;
+            ctx.strokeStyle = `rgba(${PINK.r},${PINK.g},${PINK.b},${borderAlpha})`;
             ctx.lineWidth = 0.5;
             ctx.strokeRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
           }
           ctx.setLineDash([]);
 
-          // --- SELECTED CELL BORDER — solid cyan with glow ---
+          // --- SELECTED BORDER — cyan glow ---
           if (sel) {
             const pulse = 0.5 + Math.sin(now / 400) * 0.2;
             ctx.shadowColor = `rgba(${CYAN.r},${CYAN.g},${CYAN.b},${pulse})`;
-            ctx.shadowBlur = 12;
+            ctx.shadowBlur = 14;
             ctx.strokeStyle = `rgba(${CYAN.r},${CYAN.g},${CYAN.b},0.8)`;
             ctx.lineWidth = 1.5;
             ctx.strokeRect(x + 1, y + 1, cellW - 2, cellH - 2);
@@ -316,28 +333,26 @@ export default function Chart() {
           ctx.textBaseline = "middle";
 
           if (sel) {
-            // Selected — cyan theme, bet + payout
-            ctx.font = "600 10px Rajdhani, sans-serif";
+            ctx.font = "600 9px Rajdhani, sans-serif";
             ctx.fillStyle = `rgba(${CYAN.r},${CYAN.g},${CYAN.b},0.6)`;
             ctx.fillText(`${betAmount} SOL`, cx, cy - 10);
 
-            ctx.font = "bold 16px Rajdhani, sans-serif";
+            ctx.font = "bold 15px Rajdhani, sans-serif";
             ctx.fillStyle = "#f5f5f5";
             ctx.fillText(formatPayout(payout), cx, cy + 4);
 
-            if (rowHit) {
+            if (rowHit && col === 0) {
               ctx.font = "bold 9px Rajdhani, sans-serif";
               ctx.fillStyle = "#fdd835";
-              ctx.fillText("HIT!", cx, cy + 18);
+              ctx.fillText("HIT!", cx, cy + 17);
             }
           } else {
-            // Default — payout text
-            const isHighPayout = rowDist >= 4;
-            ctx.font = `${isHighPayout ? "600 13px" : "500 11px"} Rajdhani, sans-serif`;
+            const isHighPayout = rowDist >= 3;
+            ctx.font = `${isHighPayout ? "600 12px" : "500 10px"} Rajdhani, sans-serif`;
             if (isHighPayout) {
-              ctx.fillStyle = `rgba(253,216,53,${0.4 + rowDist * 0.05})`;
+              ctx.fillStyle = `rgba(253,216,53,${0.35 + rowDist * 0.06})`;
             } else {
-              ctx.fillStyle = `rgba(${CYAN.r},${CYAN.g},${CYAN.b},${0.15 + rowDist * 0.03})`;
+              ctx.fillStyle = `rgba(${CYAN.r},${CYAN.g},${CYAN.b},${0.18 + rowDist * 0.04})`;
             }
             ctx.fillText(formatPayout(payout), cx, cy);
           }
@@ -352,9 +367,9 @@ export default function Chart() {
         }
       }
 
-      // Clean up fully faded cells
-      hitCells.forEach((t, id) => {
-        if (now - t > FADE_MS) hitCells.delete(id);
+      // Clean up faded
+      hitCells.forEach((t, cid) => {
+        if (now - t > FADE_MS) hitCells.delete(cid);
       });
 
       cellsRef.current = cells;
@@ -444,8 +459,8 @@ export default function Chart() {
       {/* SELECTION COUNT */}
       {selected.size > 0 && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
-          <span className="text-xs font-display text-accent-yellow uppercase">
-            {selected.size}/{MAX_SELECT} CELLS SELECTED
+          <span className="text-xs font-display text-accent-cyan uppercase">
+            {selected.size}/{MAX_SELECT} CELLS
           </span>
         </div>
       )}
@@ -482,7 +497,7 @@ export default function Chart() {
       {selected.size === 0 && price > 0 && (
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 px-4 py-2 rounded-lg bg-bg-secondary/70 border border-border-primary/50 backdrop-blur-sm pointer-events-none">
           <span className="text-[11px] text-text-muted font-display uppercase">
-            TAP UP TO {MAX_SELECT} CELLS — IF PRICE HITS THEM, YOU WIN
+            TAP UP TO {MAX_SELECT} CELLS AHEAD OF THE PRICE — IF IT HITS THEM, YOU WIN
           </span>
         </div>
       )}
