@@ -21,7 +21,7 @@ interface Cell {
   id: string;
   priceTop: number;
   priceBot: number;
-  multi: string;
+  payout: number;
   multiBps: number;
   x: number;
   y: number;
@@ -29,17 +29,25 @@ interface Cell {
   h: number;
 }
 
-const COLS = 8;
-const ROWS = 12;
+const GRID_COLS = 12;
+const GRID_ROWS = 10;
 const BET_PRESETS = [0.01, 0.05, 0.1, 0.5];
+const MAX_SELECT = 2;
 
-function getMultiplier(rowDist: number): { label: string; bps: number } {
-  if (rowDist <= 1) return { label: "1.5X", bps: 15_000 };
-  if (rowDist <= 2) return { label: "3X", bps: 30_000 };
-  if (rowDist <= 3) return { label: "5.54X", bps: 55_400 };
-  if (rowDist <= 4) return { label: "10X", bps: 100_000 };
-  if (rowDist <= 5) return { label: "50X", bps: 500_000 };
-  return { label: "200X", bps: 2_000_000 };
+function getMultiplier(rowDist: number): { bps: number } {
+  if (rowDist === 0) return { bps: 15_000 };
+  if (rowDist === 1) return { bps: 30_000 };
+  if (rowDist === 2) return { bps: 55_400 };
+  if (rowDist === 3) return { bps: 100_000 };
+  if (rowDist === 4) return { bps: 500_000 };
+  return { bps: 2_000_000 };
+}
+
+function formatPayout(val: number): string {
+  if (val >= 1000) return `+$${(val / 1000).toFixed(1)}K`;
+  if (val >= 100) return `+$${Math.round(val)}`;
+  if (val >= 10) return `+$${val.toFixed(1)}`;
+  return `+$${val.toFixed(2)}`;
 }
 
 export default function Chart() {
@@ -50,7 +58,7 @@ export default function Chart() {
   const cellsRef = useRef<Cell[]>([]);
   const animRef = useRef<number>(0);
   const hoverIdRef = useRef("");
-  const hitRowsRef = useRef<Map<number, number>>(new Map());
+  const hitCellsRef = useRef<Map<string, number>>(new Map());
 
   const { ticks, price, direction, connected } = usePriceHistory();
   const { publicKey } = useWallet();
@@ -67,7 +75,7 @@ export default function Chart() {
       const next = new Map(prev);
       if (next.has(cell.id)) {
         next.delete(cell.id);
-      } else if (next.size < 2) {
+      } else if (next.size < MAX_SELECT) {
         next.set(cell.id, cell);
       }
       return next;
@@ -131,7 +139,7 @@ export default function Chart() {
         borderColor: "#1a1e28",
         timeVisible: true,
         secondsVisible: true,
-        rightOffset: 3,
+        rightOffset: 5,
       },
       handleScroll: { vertTouchDrag: false },
     });
@@ -180,12 +188,11 @@ export default function Chart() {
     seriesRef.current.setData(ticks as LineData[]);
   }, [ticks]);
 
-  // Draw grid
+  // Draw grid — full chart coverage, Euphoria-style
   useEffect(() => {
     const canvas = canvasRef.current;
-    const series = seriesRef.current;
     const chart = chartRef.current;
-    if (!canvas || !series || !chart) return;
+    if (!canvas || !chart) return;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -193,7 +200,6 @@ export default function Chart() {
 
     const draw = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-
       ctx.save();
       ctx.scale(dpr, dpr);
 
@@ -203,51 +209,61 @@ export default function Chart() {
       const timeScaleH = 26;
       const gridW = cw - priceScaleW;
       const gridH = ch - timeScaleH;
-      const cellW = gridW / COLS;
-      const cellH = gridH / ROWS;
+      const cellW = gridW / GRID_COLS;
+      const cellH = gridH / GRID_ROWS;
+
       const basePrice = price > 0 ? price : 100_000;
-      const priceStep = basePrice * 0.002;
-      const midRow = Math.floor(ROWS / 2);
+      const priceStep = basePrice * 0.001;
+      const midRow = Math.floor(GRID_ROWS / 2);
       const hoverId = hoverIdRef.current;
       const now = Date.now();
 
-      // Colors: cyan=#00e5ff, pink=#c2185b, yellow=#fdd835, white=#f5f5f5, grey=#616161
       const CYAN = { r: 0, g: 229, b: 255 };
       const PINK = { r: 194, g: 24, b: 91 };
       const FADE_MS = 800;
-      const hitRows = hitRowsRef.current;
+      const hitCells = hitCellsRef.current;
+      const solPrice = 170;
 
       const cells: Cell[] = [];
 
-      for (let row = 0; row < ROWS; row++) {
+      for (let row = 0; row < GRID_ROWS; row++) {
         const rowDist = Math.abs(row - midRow);
-        const { label, bps } = getMultiplier(rowDist);
+        const { bps } = getMultiplier(rowDist);
         const priceTop = basePrice + (midRow - row) * priceStep;
         const priceBot = basePrice + (midRow - row - 1) * priceStep;
-        const rowHit = price > 0 && price >= Math.min(priceTop, priceBot) && price <= Math.max(priceTop, priceBot);
+        const rowHit = price > 0
+          && price >= Math.min(priceTop, priceBot)
+          && price <= Math.max(priceTop, priceBot);
 
-        if (rowHit && !hitRows.has(row)) {
-          hitRows.set(row, now);
-        }
-
-        const hitTime = hitRows.get(row);
-        const elapsed = hitTime ? now - hitTime : 0;
-        const fading = hitTime !== undefined && !rowHit;
-        const fadeAlpha = fading ? Math.max(0, 1 - elapsed / FADE_MS) : 1;
-        const gone = fading && fadeAlpha <= 0;
-
-        for (let col = 0; col < COLS; col++) {
+        for (let col = 0; col < GRID_COLS; col++) {
           const id = `${row}-${col}`;
           const x = col * cellW;
           const y = row * cellH;
 
+          // Distance from center col too — further cols = higher payout
+          const colDist = Math.abs(col - Math.floor(GRID_COLS / 2));
+          const colBoost = 1 + colDist * 0.15;
+          const effectiveBps = Math.round(bps * colBoost);
+          const payout = (betAmount * effectiveBps * solPrice) / 10_000;
+
           const sel = selected.has(id);
           const hover = hoverId === id;
+
+          // Track hit cells
+          if (rowHit && !hitCells.has(id)) {
+            hitCells.set(id, now);
+          }
+
+          const hitTime = hitCells.get(id);
+          const elapsed = hitTime ? now - hitTime : 0;
+          const fading = hitTime !== undefined && !rowHit;
+          const fadeAlpha = fading ? Math.max(0, 1 - elapsed / FADE_MS) : 1;
+          const gone = fading && fadeAlpha <= 0;
 
           if (gone && !sel) {
             cells.push({
               row, col, id, priceTop, priceBot,
-              multi: label, multiBps: bps,
+              payout, multiBps: effectiveBps,
               x, y, w: cellW, h: cellH,
             });
             continue;
@@ -255,90 +271,90 @@ export default function Chart() {
 
           ctx.globalAlpha = sel ? 1 : fadeAlpha;
 
-          // Background — only for interactive states
-          if (rowHit) {
-            ctx.fillStyle = `rgba(${CYAN.r},${CYAN.g},${CYAN.b},0.08)`;
-            ctx.fillRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
-          } else if (sel) {
-            ctx.fillStyle = `rgba(${CYAN.r},${CYAN.g},${CYAN.b},0.12)`;
-            ctx.fillRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
+          // --- CELL BACKGROUND ---
+          if (sel) {
+            // Selected = cyan glow
+            ctx.fillStyle = `rgba(${CYAN.r},${CYAN.g},${CYAN.b},0.15)`;
+            ctx.fillRect(x + 1, y + 1, cellW - 2, cellH - 2);
+          } else if (rowHit) {
+            ctx.fillStyle = `rgba(${PINK.r},${PINK.g},${PINK.b},0.06)`;
+            ctx.fillRect(x + 1, y + 1, cellW - 2, cellH - 2);
           } else if (hover) {
-            ctx.fillStyle = "rgba(255,255,255,0.03)";
-            ctx.fillRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
+            ctx.fillStyle = `rgba(${CYAN.r},${CYAN.g},${CYAN.b},0.06)`;
+            ctx.fillRect(x + 1, y + 1, cellW - 2, cellH - 2);
           }
 
-          // Border — subtle grid lines
-          let borderAlpha = 0.06;
-          if (sel) borderAlpha = 0.5;
-          else if (hover) borderAlpha = 0.15;
-          else if (rowHit) borderAlpha = 0.25;
+          // --- CELL BORDER ---
+          ctx.setLineDash([2, 3]);
+          let borderAlpha = 0.07;
+          if (sel) borderAlpha = 0;
+          else if (hover) borderAlpha = 0.18;
+          else if (rowHit) borderAlpha = 0.12;
 
-          ctx.strokeStyle = `rgba(255,255,255,${borderAlpha})`;
-          ctx.lineWidth = sel ? 1.5 : 0.5;
-          ctx.strokeRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
-
-          // Glow for selected — cyan glow
-          if (sel) {
-            const pulse = 0.15 + Math.sin(now / 300) * 0.1;
-            ctx.shadowColor = `rgba(${CYAN.r},${CYAN.g},${CYAN.b},${pulse})`;
-            ctx.shadowBlur = 16;
-            ctx.strokeStyle = `rgba(${CYAN.r},${CYAN.g},${CYAN.b},0.6)`;
-            ctx.lineWidth = 1.5;
+          if (borderAlpha > 0) {
+            ctx.strokeStyle = `rgba(255,255,255,${borderAlpha})`;
+            ctx.lineWidth = 0.5;
             ctx.strokeRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
+          }
+          ctx.setLineDash([]);
+
+          // --- SELECTED CELL BORDER — solid cyan with glow ---
+          if (sel) {
+            const pulse = 0.5 + Math.sin(now / 400) * 0.2;
+            ctx.shadowColor = `rgba(${CYAN.r},${CYAN.g},${CYAN.b},${pulse})`;
+            ctx.shadowBlur = 12;
+            ctx.strokeStyle = `rgba(${CYAN.r},${CYAN.g},${CYAN.b},0.8)`;
+            ctx.lineWidth = 1.5;
+            ctx.strokeRect(x + 1, y + 1, cellW - 2, cellH - 2);
             ctx.shadowBlur = 0;
           }
 
+          // --- TEXT ---
           const cx = x + cellW / 2;
           const cy = y + cellH / 2;
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
 
-          if (rowHit && sel) {
-            // WIN state — yellow payout
-            const winPayout = (betAmount * bps) / 10_000;
-            ctx.font = "bold 14px Rajdhani, sans-serif";
-            ctx.fillStyle = "#fdd835";
-            ctx.shadowColor = "#fdd835";
-            ctx.shadowBlur = 12;
-            ctx.fillText(`+${winPayout.toFixed(2)}`, cx, cy - 7);
-            ctx.shadowBlur = 0;
+          if (sel) {
+            // Selected — cyan theme, bet + payout
+            ctx.font = "600 10px Rajdhani, sans-serif";
+            ctx.fillStyle = `rgba(${CYAN.r},${CYAN.g},${CYAN.b},0.6)`;
+            ctx.fillText(`${betAmount} SOL`, cx, cy - 10);
 
-            ctx.font = "bold 10px Rajdhani, sans-serif";
+            ctx.font = "bold 16px Rajdhani, sans-serif";
             ctx.fillStyle = "#f5f5f5";
-            ctx.fillText("HIT!", cx, cy + 8);
-          } else if (sel) {
-            // Selected — white bet + cyan multiplier
-            ctx.font = "bold 13px Rajdhani, sans-serif";
-            ctx.fillStyle = "#f5f5f5";
-            ctx.fillText(`${betAmount} SOL`, cx, cy - 7);
+            ctx.fillText(formatPayout(payout), cx, cy + 4);
 
-            ctx.font = "bold 11px Rajdhani, sans-serif";
-            ctx.fillStyle = `rgba(${CYAN.r},${CYAN.g},${CYAN.b},0.9)`;
-            ctx.fillText(label, cx, cy + 8);
+            if (rowHit) {
+              ctx.font = "bold 9px Rajdhani, sans-serif";
+              ctx.fillStyle = "#fdd835";
+              ctx.fillText("HIT!", cx, cy + 18);
+            }
           } else {
-            // Default — multiplier
-            const isBigMulti = rowDist >= 4;
-            ctx.font = `${isBigMulti ? "bold 11px" : "10px"} Rajdhani, sans-serif`;
-            const textAlpha = isBigMulti ? 0.75 : 0.3;
-            ctx.fillStyle = isBigMulti
-              ? `rgba(253,216,53,${textAlpha})`
-              : `rgba(${PINK.r},${PINK.g},${PINK.b},${textAlpha})`;
-            ctx.fillText(label, cx, cy);
+            // Default — payout text
+            const isHighPayout = rowDist >= 4;
+            ctx.font = `${isHighPayout ? "600 13px" : "500 11px"} Rajdhani, sans-serif`;
+            if (isHighPayout) {
+              ctx.fillStyle = `rgba(253,216,53,${0.4 + rowDist * 0.05})`;
+            } else {
+              ctx.fillStyle = `rgba(${CYAN.r},${CYAN.g},${CYAN.b},${0.15 + rowDist * 0.03})`;
+            }
+            ctx.fillText(formatPayout(payout), cx, cy);
           }
 
           ctx.globalAlpha = 1;
 
           cells.push({
             row, col, id, priceTop, priceBot,
-            multi: label, multiBps: bps,
+            payout, multiBps: effectiveBps,
             x, y, w: cellW, h: cellH,
           });
         }
       }
 
-      // Clean up fully faded rows
-      hitRows.forEach((t, r) => {
-        if (now - t > FADE_MS) hitRows.delete(r);
+      // Clean up fully faded cells
+      hitCells.forEach((t, id) => {
+        if (now - t > FADE_MS) hitCells.delete(id);
       });
 
       cellsRef.current = cells;
@@ -388,7 +404,7 @@ export default function Chart() {
 
   const selectedArr = Array.from(selected.values());
   const totalBet = betAmount * selected.size;
-  const maxPayout = selectedArr.reduce((a, c) => a + (betAmount * c.multiBps) / 10_000, 0);
+  const maxPayout = selectedArr.reduce((a, c) => a + c.payout, 0);
 
   const dirColor =
     direction === "up" ? "text-accent-cyan" : direction === "down" ? "text-accent-pink" : "text-accent-white";
@@ -425,17 +441,26 @@ export default function Chart() {
         <span className="text-[10px] text-text-muted ml-0.5 font-display uppercase">SOL</span>
       </div>
 
+      {/* SELECTION COUNT */}
+      {selected.size > 0 && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+          <span className="text-xs font-display text-accent-yellow uppercase">
+            {selected.size}/{MAX_SELECT} CELLS SELECTED
+          </span>
+        </div>
+      )}
+
       {/* CONFIRM BAR */}
       {selected.size > 0 && (
         <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-20 flex items-center gap-4 px-5 py-2.5 rounded-xl bg-bg-secondary/95 border border-border-primary backdrop-blur-sm">
           <div className="flex flex-col items-center">
-            <span className="text-[9px] text-text-muted font-display uppercase">TOTAL</span>
+            <span className="text-[9px] text-text-muted font-display uppercase">TOTAL BET</span>
             <span className="text-sm font-display font-bold text-accent-white uppercase">{totalBet.toFixed(2)} SOL</span>
           </div>
           <div className="w-px h-8 bg-border-primary" />
           <div className="flex flex-col items-center">
             <span className="text-[9px] text-text-muted font-display uppercase">MAX WIN</span>
-            <span className="text-sm font-display font-bold text-accent-yellow uppercase">{maxPayout.toFixed(2)} SOL</span>
+            <span className="text-sm font-display font-bold text-accent-yellow uppercase">${maxPayout.toFixed(2)}</span>
           </div>
           <button
             onClick={placeBet}
@@ -457,7 +482,7 @@ export default function Chart() {
       {selected.size === 0 && price > 0 && (
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 px-4 py-2 rounded-lg bg-bg-secondary/70 border border-border-primary/50 backdrop-blur-sm pointer-events-none">
           <span className="text-[11px] text-text-muted font-display uppercase">
-            TAP A CELL — IF PRICE HITS IT, YOU WIN THE MULTIPLIER
+            TAP UP TO {MAX_SELECT} CELLS — IF PRICE HITS THEM, YOU WIN
           </span>
         </div>
       )}
