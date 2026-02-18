@@ -10,26 +10,26 @@ const rajdhani = Rajdhani({
 });
 
 export const metadata: Metadata = {
-  title: "SOLAMA — TAP TRADING ON SOLANA",
+  title: "SOLAMA — DOM PREDICTION ON SOLANA",
   description:
-    "REAL-TIME BTC/USDT PREDICTION TRADING GAME ON SOLANA. TAP A CELL, IF PRICE HITS IT, YOU WIN THE MULTIPLIER. CONNECT YOUR PHANTOM WALLET AND TRADE.",
+    "LIVE BTC/USDT ORDERBOOK PREDICTION GAME ON SOLANA. TAP A PRICE LEVEL ON THE DOM, IF PRICE REACHES IT, YOU WIN. CONNECT YOUR PHANTOM WALLET.",
   icons: {
     icon: "/icon.svg",
     apple: "/icon.svg",
   },
   openGraph: {
-    title: "SOLAMA — TAP TRADING ON SOLANA",
+    title: "SOLAMA — DOM PREDICTION ON SOLANA",
     description:
-      "REAL-TIME BTC/USDT PREDICTION TRADING GAME. TAP A CELL, WIN THE MULTIPLIER.",
+      "LIVE BTC/USDT ORDERBOOK PREDICTION GAME. TAP A PRICE LEVEL, WIN THE MULTIPLIER.",
     images: ["/og.svg"],
     type: "website",
     siteName: "SOLAMA",
   },
   twitter: {
     card: "summary_large_image",
-    title: "SOLAMA — TAP TRADING ON SOLANA",
+    title: "SOLAMA — DOM PREDICTION ON SOLANA",
     description:
-      "REAL-TIME BTC/USDT PREDICTION TRADING GAME. TAP A CELL, WIN THE MULTIPLIER.",
+      "LIVE BTC/USDT ORDERBOOK PREDICTION GAME. TAP A PRICE LEVEL, WIN THE MULTIPLIER.",
     images: ["/og.svg"],
   },
 };

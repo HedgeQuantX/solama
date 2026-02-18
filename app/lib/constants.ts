@@ -6,21 +6,12 @@ export const PROGRAM_ID = new PublicKey(
 
 export const RPC_ENDPOINT = "https://api.devnet.solana.com";
 
-export const BINANCE_WS_URL = "wss://stream.binance.com:9443/ws/btcusdt@trade";
+export const BINANCE_WS_TRADE = "wss://stream.binance.com:9443/ws/btcusdt@trade";
+export const BINANCE_WS_DEPTH = "wss://stream.binance.com:9443/ws/btcusdt@depth20@100ms";
 
-// Zone grid: rows of price levels around current price
-// Each row = a distance from price, each cell = a multiplier
-export const ZONE_GRID = [
-  { offset: 0.02, multiplier: "x0.5", bps: 5_000 },
-  { offset: 0.05, multiplier: "x1", bps: 10_000 },
-  { offset: 0.08, multiplier: "x1.5", bps: 15_000 },
-  { offset: 0.12, multiplier: "x2", bps: 20_000 },
-  { offset: 0.18, multiplier: "x3", bps: 30_000 },
-  { offset: 0.25, multiplier: "x5", bps: 50_000 },
-  { offset: 0.35, multiplier: "x8", bps: 80_000 },
-  { offset: 0.50, multiplier: "x10", bps: 100_000 },
-] as const;
-
-export const MAX_ZONES_PER_BET = 2;
 export const LAMPORTS_PER_SOL = 1_000_000_000;
 export const PRICE_DECIMALS = 2;
+
+export const TIME_WINDOWS = [30, 60, 120] as const;
+export const BET_PRESETS = [0.01, 0.05, 0.1, 0.5] as const;
+export const MAX_PREDICTIONS = 2;

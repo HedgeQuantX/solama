@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { BINANCE_WS_URL } from "@/lib/constants";
+import { BINANCE_WS_TRADE } from "@/lib/constants";
 
 export interface Tick {
   time: number;
@@ -19,7 +19,7 @@ export function usePriceHistory() {
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
-    const ws = new WebSocket(BINANCE_WS_URL);
+    const ws = new WebSocket(BINANCE_WS_TRADE);
     wsRef.current = ws;
 
     ws.onopen = () => setConnected(true);
