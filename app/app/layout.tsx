@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import localFont from "next/font/local";
 import { Rajdhani } from "next/font/google";
 import "./globals.css";
 import WalletProvider from "@/components/WalletProvider";
@@ -8,12 +7,6 @@ const rajdhani = Rajdhani({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
   variable: "--font-rajdhani",
-});
-
-const geistMono = localFont({
-  src: "./fonts/GeistMonoVF.woff",
-  variable: "--font-geist-mono",
-  weight: "100 900",
 });
 
 export const metadata: Metadata = {
@@ -49,7 +42,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body
-        className={`${rajdhani.variable} ${geistMono.variable} font-display antialiased uppercase`}
+        className={`${rajdhani.variable} font-display antialiased uppercase`}
       >
         <WalletProvider>{children}</WalletProvider>
       </body>

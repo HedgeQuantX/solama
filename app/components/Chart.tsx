@@ -50,6 +50,7 @@ export default function Chart() {
   const cellsRef = useRef<Cell[]>([]);
   const animRef = useRef<number>(0);
   const hoverIdRef = useRef("");
+  const hitRowsRef = useRef<Map<number, number>>(new Map());
 
   const { ticks, price, direction, connected } = usePriceHistory();
   const { publicKey } = useWallet();
@@ -111,7 +112,8 @@ export default function Chart() {
         background: { color: "#08090c" },
         textColor: "#616161",
         fontSize: 11,
-        fontFamily: "Rajdhani, monospace",
+        fontFamily: "Rajdhani, sans-serif",
+        attributionLogo: false,
       },
       grid: {
         vertLines: { color: "transparent" },
@@ -191,10 +193,6 @@ export default function Chart() {
 
     const draw = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      if (price <= 0) {
-        animRef.current = requestAnimationFrame(draw);
-        return;
-      }
 
       ctx.save();
       ctx.scale(dpr, dpr);
@@ -207,7 +205,8 @@ export default function Chart() {
       const gridH = ch - timeScaleH;
       const cellW = gridW / COLS;
       const cellH = gridH / ROWS;
-      const priceStep = price * 0.002;
+      const basePrice = price > 0 ? price : 100_000;
+      const priceStep = basePrice * 0.002;
       const midRow = Math.floor(ROWS / 2);
       const hoverId = hoverIdRef.current;
       const now = Date.now();
@@ -215,14 +214,27 @@ export default function Chart() {
       // Colors: cyan=#00e5ff, pink=#c2185b, yellow=#fdd835, white=#f5f5f5, grey=#616161
       const CYAN = { r: 0, g: 229, b: 255 };
       const PINK = { r: 194, g: 24, b: 91 };
+      const FADE_MS = 800;
+      const hitRows = hitRowsRef.current;
 
       const cells: Cell[] = [];
 
       for (let row = 0; row < ROWS; row++) {
         const rowDist = Math.abs(row - midRow);
         const { label, bps } = getMultiplier(rowDist);
-        const priceTop = price + (midRow - row) * priceStep;
-        const priceBot = price + (midRow - row - 1) * priceStep;
+        const priceTop = basePrice + (midRow - row) * priceStep;
+        const priceBot = basePrice + (midRow - row - 1) * priceStep;
+        const rowHit = price > 0 && price >= Math.min(priceTop, priceBot) && price <= Math.max(priceTop, priceBot);
+
+        if (rowHit && !hitRows.has(row)) {
+          hitRows.set(row, now);
+        }
+
+        const hitTime = hitRows.get(row);
+        const elapsed = hitTime ? now - hitTime : 0;
+        const fading = hitTime !== undefined && !rowHit;
+        const fadeAlpha = fading ? Math.max(0, 1 - elapsed / FADE_MS) : 1;
+        const gone = fading && fadeAlpha <= 0;
 
         for (let col = 0; col < COLS; col++) {
           const id = `${row}-${col}`;
@@ -231,24 +243,37 @@ export default function Chart() {
 
           const sel = selected.has(id);
           const hover = hoverId === id;
-          const hit = price >= Math.min(priceTop, priceBot) && price <= Math.max(priceTop, priceBot);
 
-          // Background — pink tones
-          let bgAlpha = 0.03 + rowDist * 0.012;
-          if (hit) bgAlpha = 0.18;
-          if (sel) bgAlpha = 0.28;
-          if (hover && !sel) bgAlpha = 0.10;
+          if (gone && !sel) {
+            cells.push({
+              row, col, id, priceTop, priceBot,
+              multi: label, multiBps: bps,
+              x, y, w: cellW, h: cellH,
+            });
+            continue;
+          }
 
-          ctx.fillStyle = `rgba(${PINK.r},${PINK.g},${PINK.b},${bgAlpha})`;
-          ctx.fillRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
+          ctx.globalAlpha = sel ? 1 : fadeAlpha;
 
-          // Border
+          // Background — only for interactive states
+          if (rowHit) {
+            ctx.fillStyle = `rgba(${CYAN.r},${CYAN.g},${CYAN.b},0.08)`;
+            ctx.fillRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
+          } else if (sel) {
+            ctx.fillStyle = `rgba(${CYAN.r},${CYAN.g},${CYAN.b},0.12)`;
+            ctx.fillRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
+          } else if (hover) {
+            ctx.fillStyle = "rgba(255,255,255,0.03)";
+            ctx.fillRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
+          }
+
+          // Border — subtle grid lines
           let borderAlpha = 0.06;
-          if (sel) borderAlpha = 0.7;
-          else if (hover) borderAlpha = 0.25;
-          else if (hit) borderAlpha = 0.35;
+          if (sel) borderAlpha = 0.5;
+          else if (hover) borderAlpha = 0.15;
+          else if (rowHit) borderAlpha = 0.25;
 
-          ctx.strokeStyle = `rgba(${PINK.r},${PINK.g},${PINK.b},${borderAlpha})`;
+          ctx.strokeStyle = `rgba(255,255,255,${borderAlpha})`;
           ctx.lineWidth = sel ? 1.5 : 0.5;
           ctx.strokeRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
 
@@ -268,7 +293,7 @@ export default function Chart() {
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
 
-          if (hit && sel) {
+          if (rowHit && sel) {
             // WIN state — yellow payout
             const winPayout = (betAmount * bps) / 10_000;
             ctx.font = "bold 14px Rajdhani, sans-serif";
@@ -291,7 +316,7 @@ export default function Chart() {
             ctx.fillStyle = `rgba(${CYAN.r},${CYAN.g},${CYAN.b},0.9)`;
             ctx.fillText(label, cx, cy + 8);
           } else {
-            // Default — multiplier in pink/grey
+            // Default — multiplier
             const isBigMulti = rowDist >= 4;
             ctx.font = `${isBigMulti ? "bold 11px" : "10px"} Rajdhani, sans-serif`;
             const textAlpha = isBigMulti ? 0.75 : 0.3;
@@ -301,6 +326,8 @@ export default function Chart() {
             ctx.fillText(label, cx, cy);
           }
 
+          ctx.globalAlpha = 1;
+
           cells.push({
             row, col, id, priceTop, priceBot,
             multi: label, multiBps: bps,
@@ -308,6 +335,11 @@ export default function Chart() {
           });
         }
       }
+
+      // Clean up fully faded rows
+      hitRows.forEach((t, r) => {
+        if (now - t > FADE_MS) hitRows.delete(r);
+      });
 
       cellsRef.current = cells;
       ctx.restore();

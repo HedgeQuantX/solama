@@ -33,7 +33,6 @@ const config: Config = {
       },
       fontFamily: {
         display: ["Rajdhani", "sans-serif"],
-        mono: ["var(--font-geist-mono)", "monospace"],
       },
     },
   },

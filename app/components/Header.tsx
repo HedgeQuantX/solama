@@ -36,14 +36,14 @@ export default function Header() {
           SOLAMA
         </div>
         <div className="h-4 w-px bg-border-primary" />
-        <span className="text-xs font-mono text-accent-yellow">DEVNET</span>
+        <span className="text-xs font-display text-accent-yellow">DEVNET</span>
       </div>
 
       <div className="flex items-center gap-4">
         {publicKey && balance !== null && (
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-bg-tertiary border border-border-primary">
             <div className="w-1.5 h-1.5 rounded-full bg-accent-cyan" />
-            <span className="text-xs font-mono text-text-secondary">
+            <span className="text-xs font-display text-text-secondary">
               {balance.toFixed(4)} SOL
             </span>
           </div>
